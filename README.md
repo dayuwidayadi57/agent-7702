@@ -1,7 +1,17 @@
-# agent-7702
+<h1 align="center">agent-7702</h1>
+
+<p align="center">
+  <em>Diagnose and heal EIP-7702 wallet delegations — from the command line.</em>
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/agent-7702"><img src="https://img.shields.io/npm/v/agent-7702" alt="npm version"></a>
+  <a href="https://github.com/dayuwidayadi57/agent-7702/blob/main/LICENSE"><img src="https://img.shields.io/github/license/dayuwidayadi57/agent-7702" alt="License: MIT"></a>
+  <img src="https://img.shields.io/node/v/agent-7702" alt="Node >= 18">
+</p>
 
 A command-line tool for diagnosing and healing EIP-7702 wallet delegations —
-built by an EIP-7702 drainer victim, for victims and the agents helping them.
+**built by an EIP-7702 drainer victim, for victims and the agents helping them.**
 
 EIP-7702 lets an ordinary wallet delegate its code to a contract. Attackers
 abuse signed authorizations to install *drainer* delegates: from that moment
@@ -10,44 +20,26 @@ seconds, and the owner cannot even pay gas to fight back. `agent7702` is the
 countermeasure toolkit: diagnose any wallet across 7 chains, revoke a hostile
 delegation with a relayer paying the gas, move whatever assets remain to a
 safe address, and even claim an airdrop out of a still-delegated wallet —
-atomically, before a drainer can grab it.
+atomically, before the sweeper can move.
 
-## Availability — read this first
+## ⚠️ Availability — read this first
 
-Supported chains: Ethereum, Base, BSC, Arbitrum, Optimism, Polygon, Sepolia.
+| Capability | Availability |
+|---|---|
+| Diagnosis (`check`) | Ethereum, Base, BSC, Arbitrum, Optimism, Polygon, Sepolia |
+| Revoke / delegate / submit | All 7 chains |
+| Asset rescue — Path A (`assets`, `topup`, `send-token`, `send-nft`, `rescue`) | All 7 chains |
+| Atomic Rescue — Path B (`sign-intent`, `execute`, `atomic-rescue`) | **Sepolia only** (RescueDelegate is deployed there; mainnet deployment is a maintainer decision) |
+| Atomic Claim Rescue (`claim-check`, `claim-rescue`) | **Sepolia only** (same reason) |
 
-**Works on all 7 chains today**
+Everything else in this README works on every supported chain today.
 
-- `check` — multichain delegation diagnosis with known-drainer labels
-  (read-only; verified live against real delegated wallets on all 7 chains)
-- `sign-revoke` / `revoke` / `submit` — revoke or install authorizations,
-  delivered by a gas-paying relayer; revocation target is hard-locked to the
-  zero address, installations are registry-gated (known drainers refused at
-  both the signing and the submission layer)
-- `sign-auth` / `delegate` — install a delegation to a chosen contract
-  (e.g. a smart-account upgrade)
-- `relayer new|status|sweep|burn` — relayers under a strict float-security
-  model (small floats, balance preflight, ephemeral per-mission keys)
-- `assets` / `topup` / `send-token` / `send-nft` / `rescue` — Path A asset
-  rescue, with a mission journal so an interrupted rescue resumes without
-  double-sending
-
-**Sepolia only for now**
-
-- `sign-intent` / `execute` / `atomic-rescue` — Atomic Rescue (Path B)
-- `claim-check` / `claim-rescue` — Atomic Claim Rescue for airdrops
-
-The RescueDelegate contracts are deployed per chain and listed in an
-in-package registry; today that registry contains Sepolia only. On other
-chains these commands refuse cleanly instead of improvising. All
-state-changing flows are verified end-to-end on Sepolia (contract suites:
-14/14 forge tests; every live figure cross-checked on-chain).
-
-## Install
+## 📦 Install
 
 ```bash
 npm install -g agent-7702     # commands: agent7702 (alias: agent-7702)
-agent7702 --version           # 0.4.0
+agent7702 --version
+
 # or without installing:
 npx agent-7702 check 0xYourAddress
 ```
@@ -55,46 +47,56 @@ npx agent-7702 check 0xYourAddress
 Requires Node.js ≥ 18. Keys are **always** read from files — never from
 command-line arguments or chat.
 
-## Quickstart
+## 🚀 Quickstart
 
 ```bash
 # 1. Diagnose a wallet across all chains
-agent7702 check 0xVictimAddress
+agent7702 check 0xYourAddress
 
 # 2. Revoke a hostile delegation on one chain (dry-run first; add --execute)
-agent7702 revoke --chain base --wallet-file victim-key.txt --relayer-file relayer-key.txt
+agent7702 revoke --chain base --wallet-file key.txt --relayer-file relayer.key
 
 # 3. Rescue remaining assets to a safe address
-agent7702 rescue --chain base --wallet-file victim-key.txt --relayer-file relayer-key.txt \
-  --to 0xSafeAddress --assets mission.json --execute
+agent7702 rescue --chain base --wallet-file key.txt --relayer-file relayer.key \
+  --to 0xYourSafeAddress --assets assets.json --execute
 ```
 
-The victim wallet never needs to hold any coin: in the atomic paths the
-relayer pays for everything; in Path A the relayer pays the revocation and
-sends gas dust — only *after* the wallet is clean, because funding a
-still-delegated wallet feeds its drainer (`topup` refuses delegated targets).
+Every state-changing command is a **dry run unless `--execute` is passed**.
 
-## Safety model, briefly
+## 🛡️ Safety model, briefly
 
-- Revocation can only ever target the zero address — there is no flag,
-  config, or code path that turns `sign-revoke` into an installation.
-- Installations must target a deployed contract; known drainers are refused
-  twice (signing and submission, including foreign authorization files).
-- Claim calldata is committed by hash into the owner's signed intent; a
-  relayer that substitutes different calldata achieves nothing.
-- Relayers hold tiny floats with per-chain guidance, are topped up from a
-  treasury, and can be swept and burned after a mission.
+- **Revoke is hard-locked.** The revoke path can only ever target the zero
+  address — it can heal a wallet, never delegate it.
+- **Install is registry-gated.** Delegation targets known to be drainers are
+  refused at both the signing and the submission layer; unknown targets are
+  labeled, never silently trusted.
+- **Keys never travel.** Wallet keys sign off-chain from local files; a
+  separate relayer key pays gas and holds only a tiny float under a strict
+  security model (see SKILL.md).
+- **Never fund a delegated wallet.** The tool refuses to top up a wallet
+  that is still delegated — that money would be swept.
+- **Failed atomics don't strand you.** The workflows always close with a
+  revoke and an on-chain verification that the wallet's code is `0x`.
 
-See **SKILL.md** (included) for the complete operating manual, workflows,
-and safety rules; contract sources and their forge tests are under
-`contracts/` for independent audit.
+## 🤖 For AI agents
 
-## History
+This package ships with a complete operator skill: **[SKILL.md](SKILL.md)**
+in this repository (also included in the npm tarball). Point your agent at
+it — it covers the full command reference, the relayer security model,
+standard workflows, file formats, and the non-negotiable safety rules.
 
-The project began as `doctor7702` (revoke-only) and was unified by its owner
-into `agent-7702` on 2026-10-31, keeping both directions in one tool behind
-the guardrails above. Release history: `CHANGELOG.md`.
+```text
+Read and follow the SKILL.md of the agent-7702 package, then operate the agent7702 CLI accordingly.
+```
+
+## 📜 History
+
+The tool began as **doctor7702**, a revoke-only healer. Installing a
+*benign* delegation (for example upgrading an EOA to a Smart Account, or
+the atomic-rescue flows) turned out to belong in the same hands, so both
+directions were unified into **agent-7702** — with the install direction
+kept behind the registry guardrails described above.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT — see [LICENSE](LICENSE).
