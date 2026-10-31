@@ -48,7 +48,9 @@ function die(msg) {
   process.exit(1);
 }
 
-const HELP = `agent-7702 v${VERSION} — CLI agen untuk otorisasi EIP-7702
+const HELP = `   /\\     /\\
+__/  \\/\\/\\/  \\____   agent-7702 v${VERSION}
+                     EIP-7702 Wallet Doctor — CLI agen untuk otorisasi EIP-7702
 
   Diagnosis:
   agent7702 check <address> [--chains ethereum,base,bsc,arbitrum,optimism,polygon,sepolia] [--json]
