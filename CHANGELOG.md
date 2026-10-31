@@ -5,6 +5,13 @@ Semua perubahan berarti dicatat di sini. Versi mengikuti SemVer
 Sumber tunggal versi: field `version` di package.json
 (periksa terpasang: `agent7702 --version`).
 
+## 0.4.1 — 2026-10-31
+- README dipercantik: kepala terpusat dengan badge (versi npm, lisensi
+  MIT, Node ≥18), tabel ketersediaan, bagian "For AI agents".
+- Layar bantuan: banner detak jantung (ECG) khas Wallet Doctor.
+- Layar bantuan kini berbahasa Inggris dan ringkas — indeks perintah
+  per kelompok; cara pakai lengkap diarahkan ke SKILL.md.
+
 ## 0.4.0 — 2026-10-31
 - Atomic Claim Rescue: perintah `claim-check` (pengintaian kontrak
   airdrop, verifikasi alokasi lewat simulasi) dan `claim-rescue`.

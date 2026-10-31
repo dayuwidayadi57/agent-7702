@@ -5,7 +5,7 @@ description: Operate EIP-7702 authorizations with the agent7702 CLI — diagnose
 
 # agent-7702 — agent skill
 
-> Current CLI version **0.4.0** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2) are contract protocol versions, separate from the CLI version.
+> Current CLI version **0.4.1** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2) are contract protocol versions, separate from the CLI version.
 
 ## What this is
 
