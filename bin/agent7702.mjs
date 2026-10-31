@@ -50,44 +50,38 @@ function die(msg) {
 
 const HELP = `   /\\     /\\
 __/  \\/\\/\\/  \\____   agent-7702 v${VERSION}
-                     EIP-7702 Wallet Doctor — CLI agen untuk otorisasi EIP-7702
+                     EIP-7702 Wallet Doctor
 
-  Diagnosis:
-  agent7702 check <address> [--chains ethereum,base,bsc,arbitrum,optimism,polygon,sepolia] [--json]
+  Diagnose (read-only, no keys):
+    check <address> [--chains ethereum,base,bsc,arbitrum,optimism,polygon,sepolia] [--json]
 
-  Pencabutan (target terkunci ke alamat nol):
-  agent7702 sign-revoke --chain <chain> --wallet-file <berkas> [--nonce <n>] [--json]
-  agent7702 revoke --chain <chain> --wallet-file <berkas> --relayer-file <berkas> [--execute] [--json]
+  Revoke — healing only (target hard-locked to the zero address):
+    sign-revoke · revoke
 
-  Pemasangan (target kontrak pilihan, berpagar registri):
-  agent7702 sign-auth --chain <chain> --to <kontrak> --wallet-file <berkas> [--any-chain] [--nonce <n>] [--json]
-  agent7702 delegate --chain <chain> --to <kontrak> --wallet-file <berkas> --relayer-file <berkas> [--execute] [--json]
+  Install — delegation to a chosen contract, registry-gated:
+    sign-auth · delegate
 
-  Pengantaran (relayer membayar gas):
-  agent7702 submit --chain <chain> --relayer-file <berkas> --auth <berkas-json|-> [--json]
+  Relay a signed authorization (the relayer pays the gas):
+    submit
 
-  Relayer (model aman: float mungil, kas di dompet kustodi mis. BAW):
-  agent7702 relayer new --chain <chain> [--ephemeral] [--json]
-  agent7702 relayer status [--chains a,b,c] [--json]
-  agent7702 relayer sweep --chain <chain> --relayer-file <berkas> --to <alamat-kas> [--json]
-  agent7702 relayer burn --file <berkas-di-dir-relayer> [--json]
+  Relayer management (tiny floats; the treasury stays elsewhere):
+    relayer new | status | sweep | burn
 
-  Penyelamatan aset (dompet yang sudah/akan dibersihkan):
-  agent7702 assets <address> --chain <chain> [--token <addr> ...] [--json]
-  agent7702 topup --chain <chain> --relayer-file <berkas> --to <dompet-bersih> [--amount <n>] [--json]
-  agent7702 send-token --chain <chain> --wallet-file <berkas> --token <addr> --to <tujuan> (--amount <n>|--all) [--execute] [--json]
-  agent7702 send-nft --chain <chain> --wallet-file <berkas> --token <addr> --id <n> [--amount <n>] --to <tujuan> [--execute] [--json]
-  agent7702 rescue --chain <chain> --wallet-file <berkas> --relayer-file <berkas> --to <aman> --assets <berkas.json> [--execute] [--fresh] [--json]
+  Asset rescue — Path A (wallets already healed, or being healed):
+    assets · topup · send-token · send-nft · rescue
 
-  Atomic Rescue (panen atomik via RescueDelegate):
-  agent7702 sign-intent --chain <chain> --wallet-file <berkas> --to <aman> --assets <berkas.json> [--ttl <menit>] [--json]
-  agent7702 execute --chain <chain> --relayer-file <berkas> --auth <berkas> --intent <berkas> [--json]
-  agent7702 atomic-rescue --chain <chain> --wallet-file <berkas> --relayer-file <berkas> --to <aman> --assets <berkas.json> [--ttl <menit>] [--execute] [--json]
-  agent7702 claim-check <kontrak> --chain <chain> --wallet <dompet> [--allocation <berkas.json>] [--out <berkas.json>] [--json]
-  agent7702 claim-rescue --chain <chain> --wallet-file <berkas> --relayer-file <berkas> --to <aman> --assets <berkas.json> [--ttl <menit>] [--execute] [--json]
+  Atomic Rescue — Path B, via RescueDelegate (Sepolia only):
+    sign-intent · execute · atomic-rescue
 
-Pagar: pemasangan ke kontrak drainer yang dikenal DITOLAK (sign maupun
-submit); target pemasangan wajib kontrak; kunci selalu dari berkas.`;
+  Atomic Claim Rescue — claim into a compromised wallet, forwarded to safety (Sepolia only):
+    claim-check · claim-rescue
+
+Usage in full — workflows, file formats, every flag — lives in SKILL.md,
+which ships inside this package (or read it online at
+https://unpkg.com/agent-7702/SKILL.md).
+
+Guardrails: known-drainer install targets are refused at sign AND submit;
+install targets must be deployed contracts; keys come only from files.`;
 
 function labelLine(t) {
   if (!t) return "";
@@ -535,7 +529,7 @@ async function main() {
     die(`sub-perintah relayer tidak dikenal: ${sub ?? ""} (pakai: new | status | sweep | burn)`);
   }
 
-  die(`perintah tidak dikenal: ${cmd}\n\n${HELP}`);
+  die(`unknown command: ${cmd}\n\n${HELP}`);
 }
 
 main().catch((e) => die(e?.shortMessage ?? e?.message ?? String(e)));
