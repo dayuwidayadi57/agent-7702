@@ -1,0 +1,46 @@
+{
+  "bin": {
+    "agent-7702": "./bin/agent7702.mjs",
+    "agent7702": "./bin/agent7702.mjs"
+  },
+  "dependencies": {
+    "viem": "^2.57.13"
+  },
+  "description": "CLI agen untuk otorisasi EIP-7702: diagnosis multichain, sign-revoke (cabut ke alamat nol), sign-auth (pasang ke kontrak pilihan, berpagar registri), pengantaran via relayer yang membayar gas.",
+  "files": [
+    "bin",
+    "lib",
+    "scripts",
+    "SKILL.md",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "contracts/src",
+    "contracts/test"
+  ],
+  "license": "MIT",
+  "name": "agent-7702",
+  "type": "module",
+  "version": "0.4.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "eip-7702",
+    "ethereum",
+    "evm",
+    "wallet-security",
+    "drainer",
+    "rescue",
+    "airdrop",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dayuwidayadi57/agent-7702.git"
+  },
+  "homepage": "https://github.com/dayuwidayadi57/agent-7702#readme",
+  "bugs": {
+    "url": "https://github.com/dayuwidayadi57/agent-7702/issues"
+  }
+}

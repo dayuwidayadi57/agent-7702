@@ -1,0 +1,13 @@
+{
+  "chainId": 11155111,
+  "rescueDelegateV2": "0x0ed74cc59ecd38fb2bd6f6c8874b9a6f5130efe4",
+  "mockDistributor": "0x2d4c543826e623a760268252c9e710db7c022444",
+  "mockERC20": "0x9206acb8eb0c0659dc0ebc023212b7a08824dfa8",
+  "claimAllocation": {
+    "index": "0",
+    "account": "0xd676d6aE1D57106aB49338243C343D53548382a0",
+    "amount": "500000000000000000000",
+    "proof": []
+  },
+  "deployer": "0xd31AF7eEa8cD6ef3f572A6c7aD827DcFEA158065"
+}

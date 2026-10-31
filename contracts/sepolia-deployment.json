@@ -1,0 +1,9 @@
+{
+  "chainId": 11155111,
+  "rescueDelegate": "0x81b00fe94881ccc287d5546e91e88b20042bac6a",
+  "mockERC20": "0x9206acb8eb0c0659dc0ebc023212b7a08824dfa8",
+  "mockERC721": "0x170e22fb2ae6a078fff246fd7fb38338b6ce20fa",
+  "mockERC1155": "0x8dc9214ee23ac2ef2fb688ac6145679bb6ae3d89",
+  "testWallet": "0xd676d6aE1D57106aB49338243C343D53548382a0",
+  "deployer": "0xd31AF7eEa8cD6ef3f572A6c7aD827DcFEA158065"
+}
