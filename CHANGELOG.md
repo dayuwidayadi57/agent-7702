@@ -5,6 +5,43 @@ Semua perubahan berarti dicatat di sini. Versi mengikuti SemVer
 Sumber tunggal versi: field `version` di package.json
 (periksa terpasang: `agent7702 --version`).
 
+## 0.5.0 — lokal, belum diterbitkan (2026-11-01)
+- Perintah baru `batch` + kontrak **BatchCallDelegationV2** (`contracts/src/`):
+  dompet menjadi smart account PERSISTEN, dan semua aksi berjalan sebagai
+  SATU batch bertanda tangan EIP-712 — kirim native/token/NFT, klaim yang
+  jumlahnya diketahui, panggilan kontrak umum, batch campuran (keputusan
+  pemilik: satu metode eksekusi, tanpa keluarga menu turunan). Dua mode:
+  delegate sudah terpasang, atau pasang + eksekusi dalam satu tx tipe-4
+  (`--install`). Template `--send` / `--send-token` / `--send-token-raw` /
+  `--send-nft` / `--send-1155` / `--call` / `--calls`; alur intent terpisah
+  `--sign-only` → `--intent`.
+- Pagar batch: digest disalib-periksa ke `getDigest()` on-chain bila
+  delegate terpasang; simulasi wajib sebelum kirim (mode tipe-4
+  disimulasikan utuh dengan authorizationList); nonce basi dan replay
+  ditolak di CLI sebelum transaksi dibuat; delegasi asing tidak ditimpa;
+  selector sensitif (approve, setApprovalForAll, permit, …) selalu tampil
+  sebagai peringatan di pratinjau.
+- `submitAuthorization` digeneralisasi: kini dapat membawa calldata +
+  batas gas dinamis dalam tx tipe-4 yang sama (perilaku bawaan identik —
+  jalur cabut/pasang lama tidak berubah). `check` menampilkan nonce batch
+  untuk dompet yang terdelegasi ke BatchCallDelegationV2.
+- Uji: forge **34/34** (11 pengujian baru BatchCallDelegationV2). Bukti
+  live Sepolia penuh LEWAT perintah `batch` itu sendiri: klaim 200 MOCK +
+  teruskan ke alamat aman dalam satu tx tipe-4, kirim token mode
+  terpasang, eksekusi intent terpisah, replay ditolak, `revoke`
+  menyembuhkan dompet uji kembali bersih.
+
+## Belum Dirilis — Relay-Call (2026-10-31, menunggu keputusan terbit)
+- Perintah baru `call-check` + `relay-call` (DESIGN.md §12): panggilan
+  kontrak umum berpagar via RescueDelegateV3 (Sepolia) — intent pemilik
+  mengomit target + hash calldata + hash daftar token penerus; value
+  terkunci 0; yang diteruskan ke tujuan hanya gain. Selector approve /
+  setApprovalForAll / increaseAllowance / transfer / transferFrom /
+  safeTransferFrom ditolak di lapisan CLI sebelum tanda tangan.
+- Uji forge kontrak 23/23 (v1+v2+v3) dan bukti live Sepolia penuh
+  (panggilan eksotik dari dompet terdelegasi BenignDelegate, gain token +
+  native tiba persis, revoke penutup menyembuhkan).
+
 ## 0.4.1 — 2026-10-31
 - README dipercantik: kepala terpusat dengan badge (versi npm, lisensi
   MIT, Node ≥18), tabel ketersediaan, bagian "For AI agents".

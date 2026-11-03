@@ -59,6 +59,10 @@ agent7702 revoke --chain base --wallet-file key.txt --relayer-file relayer.key
 # 3. Rescue remaining assets to a safe address
 agent7702 rescue --chain base --wallet-file key.txt --relayer-file relayer.key \
   --to 0xYourSafeAddress --assets assets.json --execute
+
+# 4. Run a signed smart-wallet batch — sends, claims, any calls (Sepolia)
+agent7702 batch --chain sepolia --wallet-file key.txt \
+  --send-token 0xTokenAddress 0xRecipient 10 --install --execute --relayer-file relayer.key
 ```
 
 Every state-changing command is a **dry run unless `--execute` is passed**.

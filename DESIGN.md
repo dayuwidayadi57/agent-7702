@@ -307,3 +307,77 @@ claim-check dan claim-rescue DIBANGUN sesuai rencana §11.3:
 Catatan implementasi: claim-check kini membedakan kegagalan perakitan
 parameter vs kegagalan simulasi pada laporannya; berkas alokasi yang
 belum lolos simulasi JANGAN ditandatangani (tertulis di SKILL.md).
+
+## 12. Rancangan: Relay-Call — panggilan kontrak umum berpagar (2026-10-31)
+
+### 12.1 Keputusan & motivasi
+
+**DISETUJUI dayu 2026-10-31 ~21:37 WIB.** Dayu menilai contract-call adalah menu penting dan mengusulkan versi relayer-nya; agen menyetujui nilainya dengan syarat bentuknya khas agent-7702 — bukan contract-call bebas ala wallet umum (BAW), melainkan generalisasi Atomic Claim Rescue (§11): panggilan berjalan **sebagai wallet korban**, gas dibayar relayer, dan isi panggilan terkunci oleh tanda tangan pemilik.
+
+Motivasi: claim-rescue §11 hanya mencakup pola klaim yang umum. Fungsi kustom — klaim non-standar, unstake, withdraw, interaksi kontrak penyelamatan lain — tidak tercakup templat. Wallet korban tidak dapat membiayai gas sendiri (koin native apa pun yang masuk disapu delegasi drainer), jadi panggilan harus menumpang tx tipe-4.
+
+### 12.2 Bentuk perintah
+
+- **`call-check`** (read-only): rekognisi + simulasi satu panggilan (target + calldata) dari alamat wallet; mengeluarkan ringkasan risiko dan status simulasi. Tanpa tanda tangan, tanpa kunci.
+- **`relay-call`** (misi atomik satu tembakan, pola claim-rescue): rakit intent → pemilik menandatangani → relayer mengirim tx tipe-4 (pasang RescueDelegateV3 + execute) → verifikasi hasil on-chain → revoke penutup.
+
+### 12.3 Mekanisme (RescueDelegateV3)
+
+- Kontrak baru **RescueDelegateV3**: domain EIP-712 "Agent7702Rescue" versi **"3"**, slot nonce intent terpisah dari v1/v2. Aksi baru **kind 5 = CALL** {target, callHash, forwardTokens[]}.
+- Intent mengomit: wallet, alamat aman tujuan (`to`), target, **value — terkunci 0**, `callHash = keccak256(calldata)`, daftar `forwardTokens`, nonce, expiry (maksimum 1 jam).
+- Eksekusi: delegate memverifikasi `keccak256(calldata) == callHash` (selisih → aksi gagal, nol bergerak — relayer tidak dapat mengganti isi panggilan), memanggil target **sebagai wallet** dengan value 0, mengukur saldo sebelum/sesudah untuk koin native dan setiap token di `forwardTokens`, lalu meneruskan **GAIN saja** ke `to`. Saldo lama wallet tidak disentuh.
+- Fakta protokol §10/§11 berlaku penuh: tx tipe-4 yang revert TIDAK membatalkan instalasi delegasi → **revoke penutup wajib**; percobaan ulang butuh intent + otorisasi baru.
+
+### 12.4 Pagar (tidak dapat ditawar)
+
+1. **Simulasi dulu, selalu**: `call-check` menjalankan eth_call calldata persis dari alamat wallet; hasil revert = jangan ditandatangani.
+2. **Target**: wajib kontrak ter-deploy, bukan alamat di registri drainer, bukan wallet itu sendiri, bukan RescueDelegate.
+3. **Selector tolak keras** (kebutuhan ini dilayani perintah khusus, dan approve tidak punya tempat dalam misi penyelamatan): `approve` 0x095ea7b3, `setApprovalForAll` 0xa22cb465, `increaseAllowance` 0x39509351, `transfer` 0xa9059cbb, `transferFrom` 0x23b872dd, `safeTransferFrom` 0x42842e0e/0xb88d4fde.
+4. **Selector tak dikenal**: dekode via ABI terverifikasi (Blockscout) bila ada, selain itu basis data 4-byte; tetap dilabeli `TIDAK DIKENAL` dan hanya berjalan setelah simulasi lolos + konfirmasi eksplisit pemilik (pola sign-auth).
+5. **Value terkunci 0** di v1 — panggilan payable di luar cakupan.
+6. **Hasil hanya ke `to`** yang terkomit di intent; tidak ada penerima lain yang dapat disisipkan relayer.
+
+### 12.5 Batasan v1
+
+- Satu panggilan per misi (tanpa batch; banyak aksi adalah pengembangan lanjutan).
+- Penerusan hasil: koin native + ERC-20 yang didaftarkan di `forwardTokens`. NFT atau token lain yang dihasilkan panggilan tetap di wallet untuk misi berikutnya (perilaku sama seperti token non-hadiah di V2).
+- Simulasi eth_call mendekati semantik "sebagai wallet" untuk mayoritas fungsi klaim/unstake; perbedaan state yang bergantung pada kode delegasi yang terpasang tidak dapat ditangkap simulasi — karena itu verifikasi pasca-eksekusi atas gain aktual bersifat wajib, bukan opsional.
+- Mainnet menunggu deployment V3 per chain atas keputusan + pendanaan dayu (pola V1/V2).
+
+**Status: DIBANGUN + DIBUKTIKAN LIVE DI SEPOLIA 2026-10-31 ~21:50 WIB.** RescueDelegateV3 tersebar di `0xdF057afC121D0c4c29255a86992d924fD334a8C4`; target uji MockExoticVault (fungsi eksotik `releaseVested()` membayar 250 token + 0,01 ETH ke pemanggil, sekali per alamat) di `0x2609b1F47E1D6d0B657a9F98CEdA4450D92FFC4a`; berkas `contracts/sepolia-deployment-v3.json`. Uji forge gabungan 23/23 LULUS (v1 7 + v2 7 + v3 9: panen atomik token+native, calldata tertukar gagal, daftar penerus tertukar gagal, target revert terisolasi, gain token tak terdaftar tetap di dompet, replay & tanda tangan asing ditolak, jumlah data salah ditolak). Bukti live: call-check menolak calldata `approve` (DITOLAK, alasan terekam) dan meloloskan `releaseVested()`; wallet uji w1-v2 didelegasikan ke BenignDelegate lalu relay-call mengeksekusi — tx atomik `0x2d40a310…` meneruskan persis +250 MOCK dan +0,01 ETH ke alamat tujuan, saldo milik wallet sendiri (15 MOCK) utuh, revoke penutup `0xe911120d…` menyembuhkan ke `0x`. Belum diterbitkan ke npm (menunggu keputusan versi/terbit dayu; kandidat minor berikutnya).
+
+
+## §13 Smart Wallet Batch — BatchCallDelegationV2 (2026-11-01)
+
+### 13.1 Keputusan arsitektur (pemilik)
+
+- Perintah **`batch`** adalah SATU-SATUNYA metode eksekusi smart wallet di CLI. Tidak ada keluarga menu turunan (kirim/claim/call terpisah): semua kemampuan adalah template penyusun `Call[]` yang masuk ke satu pipa yang sama — susun → tanda tangan EIP-712 → simulasi → relayer kirim → verifikasi.
+- Berbeda dari RescueDelegate (misi korban satu tembakan, selalu ditutup revoke): delegate ini **persisten** — dompet menjadi smart account yang tetap terpasang sampai pemilik mencabutnya lewat `revoke` biasa.
+- `relay-call` TIDAK dilipat ke `batch` pada rilis ini: semantiknya berbeda (penerusan GAIN dinamis untuk hasil yang jumlahnya belum diketahui sebelum eksekusi tidak dapat diwakili batch yang mengomit jumlah di muka). Batch mencakup semua kasus yang jumlahnya diketahui saat tanda tangan.
+
+### 13.2 Kontrak
+
+- **BatchCallDelegationV2** (`contracts/src/BatchCallDelegationV2.sol`): jalur mandiri `execute` (hanya akun sendiri) + jalur relayer `executeSigned` (tanda tangan EIP-712 domain "BatchCallDelegation" versi "2", terikat akun + chain, atas calls + nonce + deadline); nonce anti-replay di storage bernama ERC-7201 (bertahan melewati cabut/pasang ulang); larangan self-target; kunci anti-reentrancy; ERC-1271 `isValidSignature` diverifikasi ke kunci akun.
+- Lahir dari hardening pola BatchCallDelegation tanpa autentikasi (spesimen yang diunggah pemilik): pintu masuk tanpa tanda tangan dihapus total; permit ERC-2612 bukan jalur terpisah — ia hanyalah call biasa di dalam batch bertanda tangan.
+- Uji forge 11/11 (suite gabungan 34/34). Sepolia: `0x1591DdA47F3b34a3441d8a4213C1bB51401108a8` (tx deploy `0xeaba9c08…`), berkas `contracts/sepolia-deployment-batch.json`; tercatat di registri known-good.
+
+### 13.3 Bentuk perintah
+
+- `batch --chain <chain> --wallet-file <f>` dengan template `--send`, `--send-token`, `--send-token-raw`, `--send-nft`, `--send-1155`, `--call`, atau `--calls <file.json>` untuk batch campuran (mis. claim lalu teruskan). Opsi: `--ttl` menit (bawaan 30), `--batch-nonce` (wajib benar bila akun pernah memakai delegate lalu mencabutnya), `--install` (sematkan otorisasi pemasangan ke intent), `--sign-only`, `--intent <file>` untuk eksekusi terpisah, `--execute --relayer-file <f>`. Tanpa `--execute` selalu pratinjau.
+- Dua mode eksekusi: (A) delegate sudah terpasang → relayer mengirim tx biasa; (B) `--install` → SATU tx tipe-4 memasang delegate dan langsung mengeksekusi batch (`submitAuthorization` digeneralisasi untuk membawa calldata + batas gas dinamis; perilaku bawaannya identik).
+
+### 13.4 Pagar
+
+1. Digest hitungan CLI **disalib-periksa** ke `getDigest()` on-chain setiap kali delegate terpasang; ketidakcocokan = berhenti sebelum tanda tangan.
+2. **Simulasi wajib** sebelum kirim di kedua mode; mode tipe-4 disimulasikan utuh dengan authorizationList. Batch yang akan revert tidak pernah dikirim.
+3. Nonce basi / replay intent yang sudah terkonsumsi **ditolak di CLI** sebelum transaksi dibuat; deadline intent diperiksa terhadap waktu rantai.
+4. Delegasi asing tidak pernah ditimpa oleh mode batch; target self di dalam batch ditolak sejak penyusunan.
+5. Total nilai native batch tidak boleh melebihi saldo akun; selector sensitif (approve, setApprovalForAll, increaseAllowance, transferFrom, safeTransferFrom, permit) selalu tampil sebagai peringatan di pratinjau.
+6. Preflight float relayer mengikuti model yang sama dengan jalur lain.
+
+### 13.5 Bukti live (Sepolia, 2026-11-01)
+
+- Pra-CLI (skrip tangan): kirim native bertanda tangan; kirim ERC20 dalam satu tx tipe-4; klaim 300 MOCK dari distributor baru lalu teruskan ke alamat aman dalam satu tx tipe-4 (`0x70a08ef2…`) — saldo ETH akun identik sebelum/sesudah di semua uji.
+- Lewat perintah `batch` itu sendiri: mode `--install` klaim 200 MOCK + teruskan ke funder (tx `0x6e12d365…`, nonce batch 3→4); mode terpasang kirim 2 MOCK (tx `0x8b487fda…`, nonce 4→5, nonce dibaca otomatis); intent terpisah `--sign-only` → `--intent` (tx `0x91d23628…`, nonce 5→6, digest terverifikasi on-chain); replay intent yang sama **ditolak** ("intent basi"); `check` menampilkan `[BatchCallDelegationV2 — nonce batch N]`; `revoke` menutup dengan dompet uji bersih (`0x`).
+
+**Status: DIBANGUN + DIBUKTIKAN LIVE DI SEPOLIA 2026-11-01.** Versi paket lokal 0.5.0; belum diterbitkan ke npm dan belum dipasang di mainnet — keduanya keputusan terpisah dari pemilik (deploy mainnet direncanakan via CREATE2 agar alamat delegate seragam di semua chain).

@@ -13,10 +13,11 @@
 // Kunci SELALU dibaca dari berkas (izin 600 dianjurkan), tidak pernah dari
 // argumen baris perintah atau chat.
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { isAddress } from "viem";
+import { isAddress, parseEther } from "viem";
 import { checkAddress, signRevoke, signAuth, submitAuthorization, keyFromFile, publicClient, parseDelegation, targetLabel, createRelayer, relayerStatus, sweepRelayer, burnRelayerFile, RELAYER_DIR, FLOAT_GUIDE } from "../lib/core.mjs";
-import { getAssets, topup, topupAmountFor, sendToken, sendNft, sendNative, buildIntent, signIntent, executeAtomic, rescueDelegateFor, buildIntentV2, signIntentV2, executeAtomicV2, rescueDelegateV2For, claimCheck } from "../lib/rescue.mjs";
+import { getAssets, topup, topupAmountFor, sendToken, sendNft, sendNative, buildIntent, signIntent, executeAtomic, rescueDelegateFor, buildIntentV2, signIntentV2, executeAtomicV2, rescueDelegateV2For, claimCheck, buildIntentV3, signIntentV3, executeAtomicV3, rescueDelegateV3For, callCheck } from "../lib/rescue.mjs";
 import { resolveChain, DEFAULT_CHAIN_NAMES } from "../lib/chains.mjs";
+import { batchDelegateFor, getBatchState, signBatch, executeBatch, verifyIntent, nativeCall, erc20Call, erc20RawCall, erc721Call, erc1155Call, rawCall, describeCall } from "../lib/batch.mjs";
 import { privateKeyToAccount } from "viem/accounts";
 
 // Jurnal misi rescue: catatan aksi yang sudah terkonfirmasi, disimpan di
@@ -76,6 +77,12 @@ __/  \\/\\/\\/  \\____   agent-7702 v${VERSION}
   Atomic Claim Rescue — claim into a compromised wallet, forwarded to safety (Sepolia only):
     claim-check · claim-rescue
 
+  Relay-Call — general contract call, owner-committed & relayed (Sepolia only):
+    call-check · relay-call
+
+  Smart wallet batch — ONE signed batch for everything (BatchCallDelegationV2, Sepolia):
+    batch
+
 Usage in full — workflows, file formats, every flag — lives in SKILL.md,
 which ships inside this package (or read it online at
 https://unpkg.com/agent-7702/SKILL.md).
@@ -105,13 +112,24 @@ async function main() {
     if (!address || !isAddress(address)) die("alamat tidak valid");
     const chains = flag("--chains") ? flag("--chains").split(",").map((s) => s.trim()) : DEFAULT_CHAIN_NAMES;
     const res = await checkAddress(address, chains);
+    for (const r of res.results) {
+      if (r.status !== "error" && r.delegate) {
+        const ci = resolveChain(r.chain);
+        const bd = ci ? batchDelegateFor(ci.chain.id) : null;
+        if (bd && r.delegate.toLowerCase() === bd.toLowerCase()) {
+          const st = await getBatchState(r.chain, address);
+          r.batchDelegate = true;
+          r.batchNonce = st.batchNonce;
+        }
+      }
+    }
     const human = [
       `Diagnosis ${res.address} — ${res.delegatedCount} chain terdelegasi`,
       ...res.results.map((r) =>
         r.status === "error"
           ? `  ${r.chain.padEnd(10)} GAGAL CEK (${r.error})`
           : r.delegated
-            ? `  ${r.chain.padEnd(10)} TERDELEGASI -> ${r.delegate}${r.drainerLabel ? ` [${r.drainerLabel}]` : ""} (nonce ${r.nonce})`
+            ? `  ${r.chain.padEnd(10)} TERDELEGASI -> ${r.delegate}${r.drainerLabel ? ` [${r.drainerLabel}]` : ""} (nonce ${r.nonce})${r.batchDelegate ? ` [BatchCallDelegationV2 — nonce batch ${r.batchNonce}]` : ""}`
             : `  ${r.chain.padEnd(10)} bersih (nonce ${r.nonce})`,
       ),
     ].join("\n");
@@ -344,6 +362,73 @@ async function main() {
     return;
   }
 
+  if (cmd === "call-check") {
+    const target = args[1];
+    const chain = flag("--chain");
+    const wallet = flag("--wallet");
+    const data = flag("--data");
+    if (!target || !chain || !wallet || !data) die("wajib: call-check <target> --chain <chain> --wallet <dompet> --data <0x…> [--forward <token,token>] [--signature <sig>]");
+    const forward = (flag("--forward") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const res = await callCheck({ chainName: chain, wallet, target, data, forward, signatureName: flag("--signature") });
+    const lines = [
+      `CALL-CHECK ${target} di ${chain}`,
+      `Dompet    : ${wallet}`,
+      `Selector  : ${res.selector}${res.signatureName ? ` (${res.signatureName}${res.signatureMatches ? ", cocok" : ", TIDAK COCOK"})` : " (TIDAK DIKENAL — periksa ekstra hati-hati)"}`,
+      `Target    : kontrak ${res.targetCodeBytes} byte${res.drainer ? ` — DRAINER DIKENAL: ${res.drainer}` : ""}`,
+      `Simulasi  : ${res.simulation === null ? "tidak dijalankan (tertolak pagar)" : res.simulation.ok ? `LOLOS (return ${res.simulation.returnData})` : `GAGAL — ${res.simulation.error}`}`,
+      `Putusan   : ${res.verdict}`,
+      ...res.reasons.map((r) => `  - ${r}`),
+    ].join("\n");
+    out(res, lines);
+    return;
+  }
+
+  if (cmd === "relay-call") {
+    const chain = flag("--chain");
+    const walletFile = flag("--wallet-file");
+    const relayerFile = flag("--relayer-file");
+    const to = flag("--to");
+    const target = flag("--target");
+    const data = flag("--data");
+    if (!chain || !walletFile || !relayerFile || !to || !target || !data) die("wajib: --chain, --wallet-file, --relayer-file, --to, --target, --data");
+    const info = resolveChain(chain);
+    if (!info) die(`chain tidak dikenal: ${chain}`);
+    const rd = rescueDelegateV3For(info.chain.id);
+    if (!rd) die(`RescueDelegateV3 belum tersedia di ${chain}`);
+    const walletKey = keyFromFile(walletFile);
+    const relayerKey = keyFromFile(relayerFile);
+    const authority = privateKeyToAccount(walletKey).address;
+    const pub = publicClient(info);
+    const codeNow = (await pub.getCode({ address: authority })) ?? "0x";
+    const execute = args.includes("--execute");
+    const forward = (flag("--forward") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    // Pagar lapisan CLI (DESIGN §12.4): panggilan yang tertolak pagar atau
+    // gagal simulasi TIDAK PERNAH ditandatangani, bahkan untuk dry-run.
+    const check = await callCheck({ chainName: chain, wallet: authority, target, data, forward, signatureName: flag("--signature") });
+    if (check.verdict !== "LOLOS") die(`relay-call DIBATALKAN — call-check berputus ${check.verdict}: ${check.reasons.join("; ")}`);
+    const auth = await signAuth({ chainName: chain, walletKey, to: rd });
+    const intent = buildIntentV3({ chainId: info.chain.id, to, actions: [{ kind: 5, call: { contract: target, data }, forward }], ttlMinutes: flag("--ttl") ? Number(flag("--ttl")) : 15 });
+    const signed = await signIntentV3({ chainName: chain, walletKey, intent });
+    if (!execute) {
+      out({ dryRun: true, authority, chain, rescueDelegateV3: rd, callCheck: check, intent: signed }, `PRATINJAU RELAY-CALL (dry-run) — tidak ada yang dikirim.\nDompet    : ${authority} (kode kini: ${codeNow})\nDelegate  : RescueDelegateV3 ${rd}\nTarget    : ${target} selector ${check.selector}${flag("--signature") ? ` (${flag("--signature")})` : ""}\nSimulasi  : LOLOS\nPenerus   : gain native + [${forward.join(", ") || "—"}] -> ${to}\nIntent    : 1 aksi CALL, kedaluwarsa ${signed.expiry}\nRencana   : 1 tx atomik v3 (pasang + panggil + teruskan gain) lalu 1 tx revoke penutup.\n\nTambahkan --execute untuk menjalankan misi.`);
+      return;
+    }
+    const destBefore = await getAssets(chain, to, forward);
+    const { authority: _a, ...authorization } = auth;
+    const atomic = await executeAtomicV3({ chainName: chain, relayerKey, authorization, intentSigned: signed });
+    const revokeAuth = await signRevoke({ chainName: chain, walletKey });
+    const closed = await submitAuthorization({ chainName: chain, relayerKey, authorization: revokeAuth, authority });
+    const destAfter = await getAssets(chain, to, forward);
+    const tokenGains = forward.map((t) => {
+      const b = destBefore.tokens.find((x) => x.address.toLowerCase() === t.toLowerCase())?.balance ?? "0";
+      const a = destAfter.tokens.find((x) => x.address.toLowerCase() === t.toLowerCase())?.balance ?? "0";
+      return { token: t, before: b, after: a, gain: (BigInt(a) - BigInt(b)).toString() };
+    });
+    const nativeGain = (BigInt(destAfter.native) - BigInt(destBefore.native)).toString();
+    out({ callCheck: check, atomic, closing: closed, destination: { address: to, nativeGain, tokenGains } }, `RELAY-CALL selesai.\nTx atomik : ${atomic.txHash} (status ${atomic.status})\nTx penutup: ${closed.txHash} | kode akhir: ${closed.codeAfter} | BERSIH: ${closed.healed ? "YA" : "BELUM — periksa"}\nGain tiba di tujuan: native ${nativeGain} wei${tokenGains.length ? `; ${tokenGains.map((g) => `${g.token} +${g.gain}`).join("; ")}` : ""}`);
+    return;
+  }
+
   if (cmd === "claim-rescue") {
     const chain = flag("--chain");
     const walletFile = flag("--wallet-file");
@@ -484,6 +569,124 @@ async function main() {
     }
     const finalCheck = await checkAddress(authority, [chain]);
     out({ authority, chain, to, steps, finalDelegatedCount: finalCheck.delegatedCount }, `RESCUE Jalur A selesai — ${steps.length} langkah terkirim, delegasi akhir: ${finalCheck.delegatedCount} chain. Tujuan: ${to}`);
+    return;
+  }
+
+  if (cmd === "batch") {
+    const chain = flag("--chain");
+    if (!chain) die("wajib: --chain");
+    const info = resolveChain(chain);
+    if (!info) die(`chain tidak dikenal: ${chain}`);
+
+    // Mode intent tersimpan: verifikasi + (opsional) eksekusi.
+    const intentPath = flag("--intent");
+    if (intentPath) {
+      const intent = JSON.parse(readFileSync(intentPath, "utf8"));
+      let v;
+      try {
+        v = await verifyIntent(intent);
+      } catch (e) {
+        die(e.message);
+      }
+      const state = await getBatchState(chain, intent.account);
+      const lines = intent.calls.map((c, i) => `  #${i + 1} ${describeCall(c)}`);
+      const warnTxt = intent.warnings?.length ? `\nPERINGATAN:\n${intent.warnings.map((w) => "  ! " + w).join("\n")}` : "";
+      if (!args.includes("--execute")) {
+        out(
+          { dryRun: true, verified: true, signer: v.signer, state, intent },
+          `PRATINJAU BATCH (dry-run) — tidak ada yang dikirim.\nAkun     : ${intent.account}\nDelegate : ${intent.delegate}\nNonce batch: ${intent.nonce} | deadline: ${new Date(Number(intent.deadline) * 1000).toISOString()}\nTerpasang sebagai BatchCallDelegationV2: ${state.isBatchDelegate ? `YA (nonce on-chain ${state.batchNonce})` : "TIDAK"}\nCall:\n${lines.join("\n")}${warnTxt}\n\nTambahkan --execute --relayer-file <berkas> untuk mengirim.`,
+        );
+        return;
+      }
+      const relayerFile = flag("--relayer-file");
+      if (!relayerFile) die("wajib: --relayer-file untuk --execute");
+      const res = await executeBatch({ chainName: chain, relayerKey: keyFromFile(relayerFile), intent });
+      out(
+        res,
+        `Batch terkirim: ${res.txHash}\nMode: ${res.mode} | status: ${res.status} | event BatchExecuted: ${res.batchEvent ? "YA" : "TIDAK"} | nonce ${res.nonceBefore} -> ${res.nonceAfter ?? "?"} | gas relayer: ${res.gasUsed ?? "?"}`,
+      );
+      return;
+    }
+
+    // Mode susun + tanda tangani.
+    const walletFile = flag("--wallet-file");
+    if (!walletFile) die("wajib: --wallet-file (atau --intent <berkas> untuk mengeksekusi intent tersimpan)");
+    const walletKey = keyFromFile(walletFile);
+    const account = privateKeyToAccount(walletKey).address;
+    const calls = [];
+    for (let i = 0; i < args.length; i++) {
+      const a = args[i];
+      if (a === "--send") {
+        const [to, amt] = args.slice(i + 1, i + 3);
+        if (!to || amt === undefined) die("--send butuh: <to> <jumlah-koin>");
+        calls.push(nativeCall(to, parseEther(amt)));
+        i += 2;
+      } else if (a === "--send-token") {
+        const [token, to, amt] = args.slice(i + 1, i + 4);
+        if (!token || !to || amt === undefined) die("--send-token butuh: <token> <to> <jumlah>");
+        calls.push(await erc20Call(chain, token, to, amt));
+        i += 3;
+      } else if (a === "--send-token-raw") {
+        const [token, to, raw] = args.slice(i + 1, i + 4);
+        if (!token || !to || raw === undefined) die("--send-token-raw butuh: <token> <to> <jumlah-unit-terkecil>");
+        calls.push(erc20RawCall(token, to, raw));
+        i += 3;
+      } else if (a === "--send-nft") {
+        const [token, id, to] = args.slice(i + 1, i + 4);
+        if (!token || id === undefined || !to) die("--send-nft butuh: <token> <id> <to>");
+        calls.push(erc721Call(token, account, to, id));
+        i += 3;
+      } else if (a === "--send-1155") {
+        const [token, id, amt, to] = args.slice(i + 1, i + 5);
+        if (!token || id === undefined || amt === undefined || !to) die("--send-1155 butuh: <token> <id> <jumlah> <to>");
+        calls.push(erc1155Call(token, account, to, id, amt));
+        i += 4;
+      } else if (a === "--call") {
+        const [to, val, data] = args.slice(i + 1, i + 4);
+        if (!to || val === undefined || !data) die("--call butuh: <to> <nilai-koin> <data-hex>");
+        calls.push(rawCall(to, parseEther(val), data));
+        i += 3;
+      }
+    }
+    const callsFile = flag("--calls");
+    if (callsFile) {
+      const arr = JSON.parse(readFileSync(callsFile, "utf8"));
+      if (!Array.isArray(arr)) die("berkas --calls harus berupa array JSON [{to, value, data}]");
+      for (const c of arr) calls.push(rawCall(c.to, BigInt(c.value ?? "0"), c.data ?? "0x"));
+    }
+    if (calls.length === 0) die("batch kosong: beri --send / --send-token / --send-nft / --send-1155 / --call / --calls");
+    const ttl = flag("--ttl") ? Number(flag("--ttl")) : 30;
+    const intent = await signBatch({
+      chainName: chain,
+      walletKey,
+      calls,
+      ttlMinutes: ttl,
+      batchNonce: flag("--batch-nonce"),
+      withInstallAuth: args.includes("--install"),
+    });
+    const lines = intent.calls.map((c, i) => `  #${i + 1} ${describeCall(c)}`);
+    const warnTxt = intent.warnings.length ? `\nPERINGATAN:\n${intent.warnings.map((w) => "  ! " + w).join("\n")}` : "";
+    if (args.includes("--sign-only")) {
+      out(
+        intent,
+        `Intent batch ditandatangani:\n${JSON.stringify(intent, null, 2)}\n\nSimpan JSON ini; eksekusi sebelum deadline dengan:\nagent7702 batch --chain ${chain} --intent <berkas> --relayer-file <berkas> --execute`,
+      );
+      return;
+    }
+    if (!args.includes("--execute")) {
+      out(
+        { dryRun: true, intent },
+        `PRATINJAU BATCH (dry-run) — intent sudah ditandatangani, tidak ada yang dikirim.\nAkun     : ${intent.account}\nDelegate : ${intent.delegate}\nNonce batch: ${intent.nonce} | deadline: ${new Date(Number(intent.deadline) * 1000).toISOString()} | digest cocok on-chain: ${intent.digestVerifiedOnChain ? "YA" : "delegate belum terpasang"}\nCall:\n${lines.join("\n")}${warnTxt}\n\nTambahkan --execute --relayer-file <berkas> untuk mengirim sekarang, atau --sign-only untuk menyimpan intent.`,
+      );
+      return;
+    }
+    const relayerFile = flag("--relayer-file");
+    if (!relayerFile) die("wajib: --relayer-file untuk --execute");
+    const res = await executeBatch({ chainName: chain, relayerKey: keyFromFile(relayerFile), intent });
+    out(
+      { ...res, intent },
+      `Batch terkirim: ${res.txHash}\nMode: ${res.mode} | status: ${res.status} | event BatchExecuted: ${res.batchEvent ? "YA" : "TIDAK"} | nonce ${res.nonceBefore} -> ${res.nonceAfter ?? "?"} | gas relayer: ${res.gasUsed ?? "?"}`,
+    );
     return;
   }
 

@@ -5,7 +5,7 @@ description: Operate EIP-7702 authorizations with the agent7702 CLI — diagnose
 
 # agent-7702 — agent skill
 
-> Current CLI version **0.4.1** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2) are contract protocol versions, separate from the CLI version.
+> Current CLI version **0.5.0 (local workspace build, not yet published — the published npm version is still 0.4.1)** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2 / "3" for v3) are contract protocol versions, separate from the CLI version.
 
 ## What this is
 
@@ -196,6 +196,96 @@ back** — the wallet stays delegated to the RescueDelegate and the intent's
 authorization nonce is consumed. This is safe with our delegate (inert
 without an owner signature) but the closing `revoke` is then MANDATORY,
 and any retry needs a freshly signed authorization (new nonce).
+
+### Relay-Call — a general contract call, owner-committed and relayed
+
+For contract functions the Claim Rescue templates don't cover — a custom
+claim shape, an unstake, a withdraw — `relay-call` generalizes the claim
+action: the call runs **as the wallet**, a relayer pays the gas, and the
+call's contents are locked by the owner's signature. It is NOT a free-form
+contract call like a general wallet's; the guardrails below are the feature.
+
+`call-check <target> --chain <chain> --wallet <addr> --data <0x…> [--forward <token,token>] [--signature "releaseVested()"]`
+is the read-only gate: it verifies the target is a deployed contract and
+not a known drainer, classifies the selector, and simulates the exact
+calldata with `eth_call` from the wallet's address. Verdicts: `DITOLAK`
+(hard guardrail), `SIMULASI GAGAL`, `LOLOS`. **Never sign a call that has
+not passed simulation** — the same rule as claim allocations.
+
+`relay-call --chain sepolia --wallet-file <file> --relayer-file <file> --to <safe-address> --target <contract> --data <0x…> [--forward <token,token>] [--execute]`
+runs the one-shot mission through **RescueDelegateV3** (EIP-712 domain
+version `"3"`, action kind 5 = CALL). The intent commits the target,
+`keccak256(calldata)`, and the hash of the forward-token list; the value is
+locked to 0. The delegate calls the target as the wallet, then forwards
+only the **gains** — native plus each listed token's balance increase —
+to the intent's destination; the wallet's own funds are untouched, and
+gains in unlisted tokens stay in the wallet for a follow-up mission. A
+relayer that substitutes calldata or the forward list fails the hash
+check and moves nothing. The closing `revoke` follows as usual, and the
+protocol fact above applies unchanged.
+
+**Blocked selectors (refused in code, before any signing):** `approve`,
+`increaseAllowance`, `setApprovalForAll`, `transfer`, `transferFrom`,
+`safeTransferFrom` — approvals have no place in a rescue mission, and
+asset transfers have their own explicit commands. Unknown selectors are
+labeled `TIDAK DIKENAL` and proceed only after a passing simulation and
+the operator's explicit confirmation.
+
+Registry: RescueDelegateV3 is deployed on **Sepolia only**
+(`0xdF057afC121D0c4c29255a86992d924fD334a8C4`); the commands refuse
+cleanly on chains without a registered delegate.
+
+### Smart Wallet Batch — one signed batch for everything (BatchCallDelegationV2)
+
+Where the rescue delegates are one-shot mission tools, `batch` turns the
+wallet into a **persistent smart account**: BatchCallDelegationV2 stays
+installed, and every later action is an owner-signed batch executed by a
+relayer. This is the CLI's single smart-wallet execution method — sends,
+claims with known amounts, and general calls are all just templates that
+build one `Call[]`; there are no separate execution commands per action.
+
+- `batch --chain sepolia --wallet-file <file> [--send <to> <amount>] [--send-token <token> <to> <amount>] [--send-token-raw <token> <to> <raw-units>] [--send-nft <token> <id> <to>] [--send-1155 <token> <id> <amount> <to>] [--call <to> <value> <data-hex>] [--calls <file.json>] [--ttl <minutes, default 30>] [--batch-nonce <n>] [--install] [--sign-only] [--execute --relayer-file <file>]`
+- `batch --chain sepolia --intent <file.json> [--execute --relayer-file <file>]` — execute (or preview) a previously signed intent.
+- A `--calls` file is a JSON array of `{"to", "value", "data"}` with
+  `value` in wei as a string — the way to express mixed batches such as
+  claim-then-forward (`claim(...)` on a distributor, then `transfer(...)`
+  of the exact claimed amount).
+
+How it works: the owner signs an EIP-712 `Execute` intent (domain
+`"BatchCallDelegation"`, version `"2"`, bound to the account and the
+chain) committing the exact calls, a batch nonce, and a deadline. When
+the delegate is already installed, the CLI cross-checks its locally
+computed digest against the account's `getDigest()` before signing.
+Execution is always simulation-first: an installed account is simulated
+with `eth_call`; the one-shot `--install` form is simulated as a complete
+type-4 transaction (authorization list + `executeSigned` calldata) and
+then sent as that single type-4 transaction. A stale nonce, an expired
+deadline, or a reverting batch is refused **before** anything is sent —
+replaying a consumed intent fails the same check.
+
+Rules that differ from the rescue flows, on purpose:
+
+- The delegation is **persistent** — there is no closing revoke. Heal
+  with `revoke` when the owner wants the plain EOA back. The batch nonce
+  lives in ERC-7201 namespaced storage and **survives revoke and
+  re-install**; when signing for an account that used the delegate
+  before but is currently clean, pass the correct `--batch-nonce`
+  (simulation catches a wrong guess before any transaction is sent).
+- The CLI refuses to install the batch delegate over a foreign
+  delegation, and the contract refuses batches whose calls target the
+  account itself.
+- Sensitive selectors inside a batch (`approve`, `setApprovalForAll`,
+  `transferFrom`, `permit`, …) are legitimate here — the owner's
+  signature is the authority — but they are always surfaced as warnings
+  in the preview. **Read every warning before executing.**
+- Amounts known only after execution (dynamic claim gains) do NOT
+  belong in a batch: transfer amounts are committed at signing time.
+  Use `claim-rescue` / `relay-call` for gain-forwarding semantics.
+
+Registry: BatchCallDelegationV2 is deployed on **Sepolia only**
+(`0x1591DdA47F3b34a3441d8a4213C1bB51401108a8`); the command refuses
+cleanly on chains without a registered delegate. Mainnet deployment is
+a separate owner decision (CREATE2, one uniform address per chain).
 
 ## Relayer security model (operator standard)
 
