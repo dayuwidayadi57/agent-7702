@@ -5,7 +5,7 @@ description: Operate EIP-7702 authorizations with the agent7702 CLI — diagnose
 
 # agent-7702 — agent skill
 
-> Current CLI version **0.5.0 (local workspace build, not yet published — the published npm version is still 0.4.1)** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2 / "3" for v3) are contract protocol versions, separate from the CLI version.
+> Current CLI version **0.5.0** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2 / "3" for v3) are contract protocol versions, separate from the CLI version.
 
 ## What this is
 
@@ -351,8 +351,10 @@ the key to a nearly-empty safe:
   verified real cases, incl. the Binance sweeper and a 2025 victim case).
 - `lib/known-good.mjs` — known-good implementations per chain. Admission:
   verified source, public audit/track record, bytecode hash checked
-  on-chain. Currently seeded with only an internal Sepolia test delegate;
-  add mainnet smart-account implementations one at a time, verified.
+  on-chain. Currently Sepolia-only: an internal test delegate
+  (BenignDelegate) plus agent-7702's own verified delegates
+  (RescueDelegate V1/V2/V3 and BatchCallDelegationV2); mainnet
+  smart-account implementations are added one at a time, verified.
 
 ## Data files
 
