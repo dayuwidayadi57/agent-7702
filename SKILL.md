@@ -282,10 +282,13 @@ Rules that differ from the rescue flows, on purpose:
   belong in a batch: transfer amounts are committed at signing time.
   Use `claim-rescue` / `relay-call` for gain-forwarding semantics.
 
-Registry: BatchCallDelegationV2 is deployed on **Sepolia only**
-(`0x1591DdA47F3b34a3441d8a4213C1bB51401108a8`); the command refuses
-cleanly on chains without a registered delegate. Mainnet deployment is
-a separate owner decision (CREATE2, one uniform address per chain).
+Registry: BatchCallDelegationV2 is deployed on **BSC mainnet**
+(`0x40417919600bc4819B975a09992938a409495934`, deployed 2026-11-04 via
+CREATE2 with salt `keccak256("BATCHCALLDELEGATION-V2")` — the same salt
+and init code produce this same address on any other mainnet chain) and
+on **Sepolia** (`0x1591DdA47F3b34a3441d8a4213C1bB51401108a8`); the
+command refuses cleanly on chains without a registered delegate.
+Further mainnet deployments are a separate owner decision.
 
 ## Relayer security model (operator standard)
 
@@ -351,10 +354,12 @@ the key to a nearly-empty safe:
   verified real cases, incl. the Binance sweeper and a 2025 victim case).
 - `lib/known-good.mjs` — known-good implementations per chain. Admission:
   verified source, public audit/track record, bytecode hash checked
-  on-chain. Currently Sepolia-only: an internal test delegate
-  (BenignDelegate) plus agent-7702's own verified delegates
-  (RescueDelegate V1/V2/V3 and BatchCallDelegationV2); mainnet
-  smart-account implementations are added one at a time, verified.
+  on-chain. Currently: Sepolia entries (an internal test delegate,
+  BenignDelegate, plus agent-7702's own verified delegates
+  RescueDelegate V1/V2/V3 and BatchCallDelegationV2) and the first
+  mainnet entry — BatchCallDelegationV2 on BSC (deployed 2026-11-04
+  via CREATE2, bytecode verified on-chain). Mainnet smart-account
+  implementations are added one at a time, verified.
 
 ## Data files
 

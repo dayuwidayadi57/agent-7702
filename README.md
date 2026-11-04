@@ -31,6 +31,7 @@ atomically, before the sweeper can move.
 | Asset rescue — Path A (`assets`, `topup`, `send-token`, `send-nft`, `rescue`) | All 7 chains |
 | Atomic Rescue — Path B (`sign-intent`, `execute`, `atomic-rescue`) | **Sepolia only** (RescueDelegate is deployed there; mainnet deployment is a maintainer decision) |
 | Atomic Claim Rescue (`claim-check`, `claim-rescue`) | **Sepolia only** (same reason) |
+| Smart Wallet Batch (`batch`) | **BSC + Sepolia** (BatchCallDelegationV2 deployed on BSC mainnet 2026-11-04 via CREATE2: `0x40417919600bc4819B975a09992938a409495934`; other mainnet chains are a maintainer decision) |
 
 Everything else in this README works on every supported chain today.
 
@@ -60,7 +61,7 @@ agent7702 revoke --chain base --wallet-file key.txt --relayer-file relayer.key
 agent7702 rescue --chain base --wallet-file key.txt --relayer-file relayer.key \
   --to 0xYourSafeAddress --assets assets.json --execute
 
-# 4. Run a signed smart-wallet batch — sends, claims, any calls (Sepolia)
+# 4. Run a signed smart-wallet batch — sends, claims, any calls (BSC / Sepolia)
 agent7702 batch --chain sepolia --wallet-file key.txt \
   --send-token 0xTokenAddress 0xRecipient 10 --install --execute --relayer-file relayer.key
 ```
