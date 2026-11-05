@@ -5,7 +5,19 @@ Semua perubahan berarti dicatat di sini. Versi mengikuti SemVer
 Sumber tunggal versi: field `version` di package.json
 (periksa terpasang: `agent7702 --version`).
 
-## 0.5.0 — lokal, belum diterbitkan (2026-11-01)
+## 0.6.0 — rilis mainnet (disiapkan 2026-11-05)
+- **RescueDelegateV4 LIVE di mainnet BSC**: `0x23c35334fd72302C6A58e379591d9c2F0833709D`
+  (deploy 2026-11-05 via pabrik CREATE2, salt `keccak256("RESCUEDELEGATE-V4")`,
+  bytecode on-chain terverifikasi cocok persis dengan artefak). Terdaftar di
+  `RESCUE_DELEGATES_V4` (chain 56) + `lib/known-good.mjs`, sehingga perintah
+  `mission` kini bekerja di BSC mainnet selain Sepolia; `check` mengenali
+  delegate ini sebagai milik agent-7702 pada chain 56.
+- **BatchCallDelegationV2 alamat mainnet BSC** (`0x40417919600bc4819B975a09992938a409495934`,
+  live sejak 2026-11-04) kini ikut terbawa paket npm — pada 0.5.0 alamat ini
+  baru terdaftar di repo GitHub.
+- Catatan deploy: `contracts/mainnet-deployment-v4.json`.
+
+## 0.5.0 — diterbitkan ke npm 2026-11-03 (disiapkan lokal 2026-11-01)
 - Perintah baru `batch` + kontrak **BatchCallDelegationV2** (`contracts/src/`):
   dompet menjadi smart account PERSISTEN, dan semua aksi berjalan sebagai
   SATU batch bertanda tangan EIP-712 — kirim native/token/NFT, klaim yang

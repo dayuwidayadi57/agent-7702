@@ -5,7 +5,7 @@ description: Operate EIP-7702 authorizations with the agent7702 CLI — diagnose
 
 # agent-7702 — agent skill
 
-> Current CLI version **0.5.0** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2 / "3" for v3) are contract protocol versions, separate from the CLI version.
+> Current CLI version **0.6.0** — check with `agent7702 --version`; release history lives in the package's `CHANGELOG.md`. The EIP-712 intent domain versions ("1" for v1 / "2" for v2 / "3" for v3 / "4" for v4) are contract protocol versions, separate from the CLI version.
 
 ## What this is
 
@@ -148,7 +148,53 @@ assets file lists actions as `{kind, token, amount(raw units), tokenId}`
 revoke (if delegated) → topup (skipped when the wallet already holds enough
 native) → per-action sends → native sweep → final check. **Mission journal:** `rescue` records every confirmed action in `<assets>.journal.json` (created next to the assets file, updated immediately after each send). Re-running the same mission skips journal-completed actions and a recorded native sweep, so an interrupted rescue can be resumed safely without double-sending. The journal is bound to (chain, wallet, destination) — a mismatch is refused; start a genuinely new mission with `--fresh` or by deleting the journal file.
 
-### Atomic Rescue — Path B (harvest during a benign-delegation window)
+### Mission — the UNIFIED rescue (RescueDelegateV4, primary path)
+
+```bash
+agent7702 mission --chain <chain> --wallet-file <key-file> --relayer-file <key-file> --to <safe> --assets <mission.json> [--ttl <minutes>] [--execute] [--json]
+```
+
+One command, one intent, one delegate for every rescue shape that used
+to need three separate flows. The mission file is the usual
+`{actions: [...]}` JSON, and a single intent may mix **all** action
+kinds: 0 native, 1 ERC20, 2 ERC721, 3 ERC1155 (transfers), 4 CLAIM
+(`claim: {contract, data}` — entire gain of the reward token forwarded),
+and 5 CALL (`call: {contract, data}`, `forward: [tokens]` — gains
+forwarded), executed atomically by **RescueDelegateV4** (EIP-712 domain
+version `"4"`). New in V4: a kind-5 call may carry a **committed native
+value** (`value`, wei as a string, default `"0"`) — the exact amount the
+call spends from the wallet's own balance, locked into the signed intent
+so no relayer can alter it; forwarding is computed net of that committed
+spend, and a value the balance cannot cover fails that one action in
+isolation while the rest of the mission runs. This covers
+pay-to-unlock / fee-gated functions the earlier delegates could not
+touch (value was locked to 0 there).
+
+The discipline is unchanged and enforced before any signature: blocked
+selectors (`approve`, `increaseAllowance`, `setApprovalForAll`,
+`transfer`, `transferFrom`, `safeTransferFrom`) are refused while the
+intent is being built, and **every kind-4/5 call must pass an `eth_call`
+simulation from the wallet's address** or the mission is cancelled —
+even for a dry run. Without `--execute`, `mission` prints the full
+preview (per-action lines, simulation verdicts). With `--execute` it
+runs the atomic type-4 transaction, then the closing `revoke`, then
+reports the destination's verified gains.
+
+Registry: `RESCUE_DELEGATES_V4` in `lib/rescue.mjs` — deployed on
+**BSC mainnet** (`0x23c35334fd72302C6A58e379591d9c2F0833709D`, deployed
+2026-11-05 via the canonical CREATE2 deployer with salt
+`keccak256("RESCUEDELEGATE-V4")`; on-chain bytecode verified
+byte-for-byte against the build artifact; see
+`contracts/mainnet-deployment-v4.json`) and on **Sepolia**
+(`0x759bcEFaF488CcbD652f6114a8bddCd6D4440464`, deployed 2026-11-04;
+bytecode likewise verified, and a live mixed mission — claim +
+committed-value call + sweep — executed end-to-end through `mission`
+itself; see `contracts/sepolia-deployment-v4.json` and DESIGN §14).
+The command refuses cleanly on any chain without a registered V4
+delegate. The three flows below remain functional for Sepolia V1–V3
+missions and are kept as **legacy**.
+
+### Atomic Rescue — Path B (harvest during a benign-delegation window) — legacy, Sepolia
 ```bash
 agent7702 sign-intent --chain <chain> --wallet-file <key-file> --to <safe> --assets <file.json> [--ttl <minutes>] [--json]
 agent7702 execute --chain <chain> --relayer-file <key-file> --auth <file> --intent <file> [--json]
@@ -164,7 +210,10 @@ drainer holding spare authorizations to interleave. `atomic-rescue` is the
 one-shot form (sign-auth + sign-intent → atomic execute → closing revoke →
 verification).
 
-### Atomic Claim Rescue — claiming an airdrop from a drained wallet
+### Atomic Claim Rescue — claiming an airdrop from a drained wallet — legacy, Sepolia
+
+*Legacy: new claim missions should use `mission` (kind-4 actions) on
+RescueDelegateV4 where it is registered; this V2 flow stays for Sepolia.*
 ```bash
 agent7702 claim-check <contract> --chain <chain> --wallet <address> [--allocation <file.json>] [--out <assets.json>] [--json]
 agent7702 claim-rescue --chain <chain> --wallet-file <key-file> --relayer-file <key-file> --to <safe> --assets <file.json> [--ttl <minutes>] [--execute] [--json]
@@ -197,7 +246,11 @@ authorization nonce is consumed. This is safe with our delegate (inert
 without an owner signature) but the closing `revoke` is then MANDATORY,
 and any retry needs a freshly signed authorization (new nonce).
 
-### Relay-Call — a general contract call, owner-committed and relayed
+### Relay-Call — a general contract call, owner-committed and relayed — legacy, Sepolia
+
+*Legacy: new general-call missions should use `mission` (kind-5
+actions, optionally with a committed `value`) on RescueDelegateV4 where
+it is registered; this V3 flow stays for Sepolia.*
 
 For contract functions the Claim Rescue templates don't cover — a custom
 claim shape, an unstake, a withdraw — `relay-call` generalizes the claim
@@ -356,10 +409,20 @@ the key to a nearly-empty safe:
   verified source, public audit/track record, bytecode hash checked
   on-chain. Currently: Sepolia entries (an internal test delegate,
   BenignDelegate, plus agent-7702's own verified delegates
-  RescueDelegate V1/V2/V3 and BatchCallDelegationV2) and the first
+  RescueDelegate V1/V2/V3, BatchCallDelegationV2, and
+  RescueDelegateV4) and the first
   mainnet entry — BatchCallDelegationV2 on BSC (deployed 2026-11-04
   via CREATE2, bytecode verified on-chain). Mainnet smart-account
   implementations are added one at a time, verified.
+  **RescueDelegateV4** (the unified mission delegate, DESIGN §14) is
+  built and forge-verified — full suite 51/51 including 17 V4 tests —
+  and **deployed on BSC mainnet**
+  (`0x23c35334fd72302C6A58e379591d9c2F0833709D`, 2026-11-05, via
+  CREATE2) and on **Sepolia**
+  (`0x759bcEFaF488CcbD652f6114a8bddCd6D4440464`, 2026-11-04), both
+  with on-chain bytecode verification, and a live mixed mission
+  (claim + committed-value call + sweep) executed through the
+  `mission` command itself on Sepolia.
 
 ## Data files
 

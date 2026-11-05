@@ -32,6 +32,7 @@ atomically, before the sweeper can move.
 | Atomic Rescue — Path B (`sign-intent`, `execute`, `atomic-rescue`) | **Sepolia only** (RescueDelegate is deployed there; mainnet deployment is a maintainer decision) |
 | Atomic Claim Rescue (`claim-check`, `claim-rescue`) | **Sepolia only** (same reason) |
 | Smart Wallet Batch (`batch`) | **BSC + Sepolia** (BatchCallDelegationV2 deployed on BSC mainnet 2026-11-04 via CREATE2: `0x40417919600bc4819B975a09992938a409495934`; other mainnet chains are a maintainer decision) |
+| Unified Rescue Mission (`mission`) | **BSC + Sepolia** (RescueDelegateV4 deployed on BSC mainnet 2026-11-05 via CREATE2: `0x23c35334fd72302C6A58e379591d9c2F0833709D`; Sepolia: `0x759bcEFaF488CcbD652f6114a8bddCd6D4440464`) |
 
 Everything else in this README works on every supported chain today.
 

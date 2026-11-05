@@ -380,4 +380,33 @@ Motivasi: claim-rescue §11 hanya mencakup pola klaim yang umum. Fungsi kustom �
 - Pra-CLI (skrip tangan): kirim native bertanda tangan; kirim ERC20 dalam satu tx tipe-4; klaim 300 MOCK dari distributor baru lalu teruskan ke alamat aman dalam satu tx tipe-4 (`0x70a08ef2…`) — saldo ETH akun identik sebelum/sesudah di semua uji.
 - Lewat perintah `batch` itu sendiri: mode `--install` klaim 200 MOCK + teruskan ke funder (tx `0x6e12d365…`, nonce batch 3→4); mode terpasang kirim 2 MOCK (tx `0x8b487fda…`, nonce 4→5, nonce dibaca otomatis); intent terpisah `--sign-only` → `--intent` (tx `0x91d23628…`, nonce 5→6, digest terverifikasi on-chain); replay intent yang sama **ditolak** ("intent basi"); `check` menampilkan `[BatchCallDelegationV2 — nonce batch N]`; `revoke` menutup dengan dompet uji bersih (`0x`).
 
-**Status: DIBANGUN + DIBUKTIKAN LIVE DI SEPOLIA 2026-11-01.** Versi paket lokal 0.5.0; belum diterbitkan ke npm dan belum dipasang di mainnet — keduanya keputusan terpisah dari pemilik (deploy mainnet direncanakan via CREATE2 agar alamat delegate seragam di semua chain).
+**Status: DIBANGUN + DIBUKTIKAN LIVE DI SEPOLIA 2026-11-01.** Kelanjutan tercatat: paket 0.5.0 DITERBITKAN ke npm 2026-11-03, dan BatchCallDelegationV2 DIPASANG DI MAINNET BSC 2026-11-04 via CREATE2 (alamat `0x40417919600bc4819B975a09992938a409495934`, salt `keccak256("BATCHCALLDELEGATION-V2")`; berkas `contracts/mainnet-deployment-batch.json`).
+
+## §14 RescueDelegateV4 + pelipatan CLI `mission` (2026-11-04)
+
+### 14.1 Keputusan & motivasi
+
+**DIBANGUN atas persetujuan dayu 2026-11-04** (opsi "bangun V4 beneran" + perintah menyederhanakan CLI agar tidak redundan). Temuan pemicu: RescueDelegateV3 sebenarnya SUDAH merupakan gabungan V1+V2+V3 (satu intent dapat mencampur kind 0–5), jadi "V4 gabungan" murni akan redundan. Satu-satunya kemampuan yang benar-benar belum ada di seluruh keluarga: **panggilan bernilai (value call)** — §12.5 butir 5 mengunci value = 0 di V3, padahal ada kasus penyelamatan klasik yang mewajibkan pembayaran persis dari dompet (bayar biaya unlock/tebusan, repay untuk membuka agunan, fungsi fee-gated lain). V4 = V3 + kemampuan itu; sekaligus permukaan CLI dilipat menjadi satu alur misi terpadu.
+
+### 14.2 Kontrak — RescueDelegateV4
+
+- Delta minimal dari V3: struct `Action` menambah field terakhir `uint256 value`; typehash EIP-712 Action diperbarui; domain "Agent7702Rescue" versi **"4"**; slot penanda nonce terpisah (`agent7702.rescue.v4.usedNonces`). Tanpa owner/admin/pause/upgrade; tanpa dependensi baru.
+- Semantik value: hanya kind 5. Panggilan berjalan dengan value PERSIS `a.value` wei dari saldo dompet sendiri — terkomit di tanda tangan, tidak dapat diubah relayer (diubah = BadSignature). Untuk kind 0–4 field diabaikan (kind 4 tetap penerusan gain murni).
+- Penerusan gain native dihitung BERSIH: garis dasar = saldo awal − value terkomit; hanya kenaikan di atas garis dasar itu yang diteruskan ke `to`. Value adalah biaya yang dikomitkan pemilik, BUKAN diambil dari gain penerusan.
+- Saldo tidak cukup untuk value → panggilan gagal → ActionFailed terisolasi, misi berlanjut (pagar yang sama seperti kegagalan target lain). Calldata/daftar penerus tetap terkomit hash persis seperti V3.
+- Runtime 6.597 byte — jauh di bawah batas EIP-170 BSC (24.576).
+
+### 14.3 Pelipatan CLI — perintah `mission`
+
+- Satu perintah terpadu menggantikan tiga alur paralel untuk misi BARU: `agent7702 mission --chain <c> --wallet-file <f> --relayer-file <f> --to <aman> --assets <mission.json> [--ttl] [--execute]`. Berkas misi = `{actions:[...]}` yang sama, kini mendukung semua kind termasuk claim (kind 4), call (kind 5), dan value kind 5.
+- Disiplin tidak berubah: selector terlarang (approve, increaseAllowance, setApprovalForAll, transfer, transferFrom, safeTransferFrom) ditolak di lapisan penyusun intent (`buildIntentV4`) sebelum tanda tangan; SETIAP panggilan kind 4/5 wajib lolos simulasi eth_call dari alamat dompet (`simulateMissionCalls`) atau misi dibatalkan — termasuk untuk dry-run; lalu pola lama berlaku: sign-auth → sign-intent → tx tipe-4 atomik → revoke penutup → laporan gain terverifikasi di tujuan.
+- Registri `RESCUE_DELEGATES_V4` di `lib/rescue.mjs` dikunci per chainId; perintah menolak bersih di chain tanpa delegate v4 terdaftar. Mainnet SENGAJA kosong.
+- Perintah lama (`atomic-rescue`, `claim-rescue`, `relay-call`, `sign-intent`, `execute`, `call-check`, `claim-check`, Jalur A, `batch`) TIDAK dihapus dan tetap berfungsi untuk Sepolia V1–V3; di SKILL.md ketiganya ditandai legacy/Sepolia dan `mission` didokumentasikan sebagai jalur penyelamatan utama.
+
+### 14.4 Status pembangunan (2026-11-04)
+
+- Forge: suite gabungan **51/51 LULUS** (34 lama utuh + 17 baru V4: seluruh cakupan relay-call v3, claim atomik + calldata ditukar, kedaluwarsa, dan lima uji value — value persis terkomit, value melebihi saldo terisolasi, value diubah sesudah tanda tangan → BadSignature, value 0 = perilaku persis V3, value call dengan hash calldata tidak cocok → value tidak keluar).
+- Gladi bersih anvil ujung-ke-ujung: **12/12 pemeriksaan lulus** — misi campuran (claim 500 MOCK diteruskan + value call buyUnlock 0,05 ETH persis dengan payout 300 MOCK diteruskan + sweep 100 MOCK) dalam SATU tx tipe-4 (gasUsed 301.170), saldo native dompet berkurang hanya sebesar value terkomit, revoke penutup mengembalikan kode 0x. Lari pertama gladi (dompet uji tak berdana) sekaligus membuktikan isolasi kegagalan value pada alur nyata: aksi value gagal sendiri, claim + sweep tetap selesai.
+- Deploy Sepolia TERTUNDA pendanaan deployer bersama `0xd31AF7…8065`: estimasi deploy terukur (eth_estimateGas atas initcode persis) **10.493.470 gas** — pada gas price live (~32 wei) biayanya ~0,0000003 ETH, tetapi saldo deployer 0,0000983 ETH tidak memberi margin aman terhadap lonjakan fee (pada harga perencanaan 2 gwei deploy saja = 0,020987 ETH; kekurangan terhadap saldo ≈ **0,0209 ETH**, dan seluruh rangkaian Part 4 ≈ 0,03 ETH — sesuai top-up yang sudah diminta ke dayu). Sesudah top-up tiba: deploy via forge create → verifikasi on-chain → isi registri Sepolia + known-good → `contracts/sepolia-deployment-v4.json` → uji live satu misi campuran (claim + acceptAny bernilai kecil + sweep) lewat perintah `mission` itu sendiri.
+
+- **Status akhir (2026-11-05):** rangkaian Part 4 di atas SELESAI — RescueDelegateV4 live di Sepolia 2026-11-04 (`0x759bcEFaF488CcbD652f6114a8bddCd6D4440464`, misi campuran live lolos) dan **live di MAINNET BSC 2026-11-05** (`0x23c35334fd72302C6A58e379591d9c2F0833709D`, deploy via BAW → pabrik CREATE2, salt `keccak256("RESCUEDELEGATE-V4")`, gasUsed 1.482.995, bytecode on-chain cocok persis dengan artefak; berkas `contracts/mainnet-deployment-v4.json`). Terdaftar di `RESCUE_DELEGATES_V4[56]` + known-good pada gelombang yang sama; dibawa rilis npm 0.6.0 bersama alamat Batch BSC.
